@@ -3,6 +3,7 @@
 #![feature(array_chunks)]
 use std::{
     fmt::Display,
+    io::{stdout, Write},
     ops::{Index, IndexMut},
     str::FromStr,
 };
@@ -168,8 +169,7 @@ fn set(
                 possibilities_board: &mut PossibilitySpaceBoard,
                 pos: (usize, usize),
                 space_idx: usize,
-                is_invalid: &mut bool,
-            ) {
+            ) -> bool {
                 possibilities_board[pos][space_idx] = false;
                 let remaining_possibilities = possibilities_board[pos]
                     .iter()
@@ -178,44 +178,50 @@ fn set(
                     .collect::<Vec<_>>();
                 match &remaining_possibilities[..] {
                     &[] => {
-                        *is_invalid = true;
+                        true
                     }
                     &[only] if board[pos].is_none() => {
-                        set(board, possibilities_board, pos, only);
+                        set(board, possibilities_board, pos, only)
                     }
-                    _ => {}
+                    _ => false
                 }
             }
 
             if i != x {
-                attend_to_pos(
+                if attend_to_pos(
                     board,
                     possibilities_board,
                     (i, y),
                     space_idx,
-                    &mut is_invalid,
-                );
+                ) {
+                    is_invalid = true;
+                    break;
+                }
             }
 
             if i != y {
-                attend_to_pos(
+                if attend_to_pos(
                     board,
                     possibilities_board,
                     (x, i),
                     space_idx,
-                    &mut is_invalid,
-                );
+                ) {
+                    is_invalid = true;
+                    break;
+                }
             }
 
             let (sx, sy) = (left + (i % 3), top + (i / 3));
             if (sx, sy) != (x, y) {
-                attend_to_pos(
+                if attend_to_pos(
                     board,
                     possibilities_board,
                     (sx, sy),
                     space_idx,
-                    &mut is_invalid,
-                );
+                ) {
+                    is_invalid = true;
+                    break;
+                }
             }
         }
     } else {
@@ -300,13 +306,16 @@ impl SudokuBoard {
                         break;
                     }
                     &[value] if self[(x, y)].is_none() => {
-                        set(self, &mut possibility_space, (x, y), value);
+                        is_invalid |= set(self, &mut possibility_space, (x, y), value);
+                        if is_invalid {
+                            break;
+                        }
                     }
                     _ => {}
                 }
             }
 
-            if !adjusted {
+            if !adjusted || self.is_solution() {
                 break;
             }
         }
@@ -411,6 +420,8 @@ struct NextSudokuBoardsIterator {
     sub_index: usize,
 }
 
+static mut COUNTER: usize = 0;
+
 impl Iterator for NextSudokuBoardsIterator {
     type Item = SudokuBoard;
 
@@ -425,6 +436,14 @@ impl Iterator for NextSudokuBoardsIterator {
 
             if *index >= 81 {
                 return None;
+            }
+
+            unsafe {
+                COUNTER += 1;
+                if COUNTER % 100_000 == 0 {
+                    print!("\r{}", COUNTER);
+                    stdout().flush().unwrap();
+                }
             }
 
             // hacky but im too lazy to implement this properly with a de facto abstraction
