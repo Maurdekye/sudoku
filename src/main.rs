@@ -95,13 +95,29 @@ impl TryFrom<usize> for Space {
 }
 
 type SudokuBoard = Board<Option<Space>>;
-type PossibilitySpaceBoard = Board<[bool; 9]>;
+type SudokuChoices = [bool; 9];
 
-impl SudokuBoard {
-    fn reduce(&mut self) -> PossibilitySpaceBoard {
-        // prepare possibility space
+fn format_sudoku_choices(choices: &SudokuChoices) -> String {
+    format!(
+        "[{}]",
+        choices
+            .iter()
+            .enumerate()
+            .map(|(i, open)| if *open {
+                (i + 1).to_string()
+            } else {
+                " ".to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("")
+    )
+}
+
+type PossibilitySpaceBoard = Board<SudokuChoices>;
+impl PossibilitySpaceBoard {
+    fn new(board: &SudokuBoard) -> Self {
         let mut possibility_space = Board([[true; 9]; _]);
-        for (possibilities, space) in possibility_space.iter_mut().zip(self.iter()) {
+        for (possibilities, space) in possibility_space.iter_mut().zip(board.iter()) {
             if let Some(space) = space {
                 let space_number = space.idx();
                 for (space_idx, value) in possibilities.iter_mut().enumerate() {
@@ -109,6 +125,32 @@ impl SudokuBoard {
                 }
             }
         }
+        possibility_space
+    }
+}
+
+impl Display for PossibilitySpaceBoard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            (0..9)
+                .map(|y| {
+                    (0..9)
+                        .map(|x| format_sudoku_choices(&self[(x, y)]))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    }
+}
+
+impl SudokuBoard {
+    fn reduce(&mut self) -> PossibilitySpaceBoard {
+        // prepare possibility space
+        let mut possibility_space = PossibilitySpaceBoard::new(self);
 
         loop {
             let mut adjusted = false;
@@ -117,15 +159,28 @@ impl SudokuBoard {
                 let (x, y) = (i % 9, i / 9);
                 let mut new_possibilities = possibility_space[(x, y)].clone();
 
+                #[cfg(debug_assertions)]
+                {
+                    println!();
+                    println!(
+                        "{:?}, {:?}",
+                        (x, y),
+                        format_sudoku_choices(&new_possibilities)
+                    );
+                    println!("{}", self);
+                    println!("{}", possibility_space);
+                    println!();
+                }
+
                 // check current row
-                for x in 0..9 {
+                for x in (0..9).filter(|i| *i != x) {
                     if let Some(space) = &self[(x, y)] {
                         new_possibilities[space.idx()] = false;
                     }
                 }
 
                 // check current column
-                for y in 0..9 {
+                for y in (0..9).filter(|i| *i != y) {
                     if let Some(space) = &self[(x, y)] {
                         new_possibilities[space.idx()] = false;
                     }
@@ -135,9 +190,11 @@ impl SudokuBoard {
                 let left = x - x % 3;
                 let top = y - y % 3;
                 for i in 0..9 {
-                    let (x, y) = (left + (i % 3), top + (i / 3));
-                    if let Some(space) = &self[(x, y)] {
-                        new_possibilities[space.idx()] = false;
+                    let (sx, sy) = (left + (i % 3), top + (i / 3));
+                    if (sx, sy) != (x, y) {
+                        if let Some(space) = &self[(sx, sy)] {
+                            new_possibilities[space.idx()] = false;
+                        }
                     }
                 }
 
@@ -385,20 +442,19 @@ fn test_solve_hard_2() {
 fn main() {
     #[rustfmt::skip]
     let board_str = 
-"2  5 74 6
-    31   
-      23 
-    2    
-86 31    
- 45      
-  9   7  
-  695   2
-  1  6  8";
-    let board: SudokuBoard = board_str.parse().unwrap();
+"53  7    
+6  195   
+ 98    6 
+8   6   3
+4  8 3  1
+7   2   6
+ 6    28 
+   419  5
+    8  79";
+    let mut board: SudokuBoard = board_str.parse().unwrap();
     println!("initial board:");
     println!("{}", board);
-    let mut searcher: Searcher<guided::no_route::hashable::Manager<_>, _> = Searcher::new(board);
-    let solution = searcher.next().expect("Sudoku board has a solution");
-    println!("solution:");
-    println!("{}", solution);
+    board.reduce();
+    println!("after reduction:");
+    println!("{}", board);
 }
