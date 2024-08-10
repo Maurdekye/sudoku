@@ -7,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-use space_search::{search::guided, Scoreable, Searchable, Searcher, SolutionIdentifiable};
+use space_search::{Scoreable, Searchable, SolutionIdentifiable};
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct Board<Cell>([Cell; 81]);
@@ -36,7 +36,7 @@ impl<Cell> IndexMut<(usize, usize)> for Board<Cell> {
     }
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, Hash, PartialEq, Eq)]
 enum Space {
     One,
     Two,
@@ -147,10 +147,94 @@ impl Display for PossibilitySpaceBoard {
     }
 }
 
+fn set(
+    board: &mut SudokuBoard,
+    possibilities_board: &mut PossibilitySpaceBoard,
+    pos: (usize, usize),
+    value: Space,
+) -> bool {
+    let mut is_invalid = false;
+    if board[pos].is_none() {
+        let space_idx = value.idx();
+        board[pos] = Some(value);
+        possibilities_board[pos] = [false; 9];
+        possibilities_board[pos][space_idx] = true;
+
+        let (x, y) = pos;
+        let (left, top) = ((x / 3) * 3, (y / 3) * 3);
+        for i in 0..9 {
+            fn attend_to_pos(
+                board: &mut SudokuBoard,
+                possibilities_board: &mut PossibilitySpaceBoard,
+                pos: (usize, usize),
+                space_idx: usize,
+                is_invalid: &mut bool,
+            ) {
+                possibilities_board[pos][space_idx] = false;
+                let remaining_possibilities = possibilities_board[pos]
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, o)| o.then_some(Space::try_from(i + 1).unwrap()))
+                    .collect::<Vec<_>>();
+                match &remaining_possibilities[..] {
+                    &[] => {
+                        *is_invalid = true;
+                    }
+                    &[only] if board[pos].is_none() => {
+                        set(board, possibilities_board, pos, only);
+                    }
+                    _ => {}
+                }
+            }
+
+            if i != x {
+                attend_to_pos(
+                    board,
+                    possibilities_board,
+                    (i, y),
+                    space_idx,
+                    &mut is_invalid,
+                );
+            }
+
+            if i != y {
+                attend_to_pos(
+                    board,
+                    possibilities_board,
+                    (x, i),
+                    space_idx,
+                    &mut is_invalid,
+                );
+            }
+
+            let (sx, sy) = (left + (i % 3), top + (i / 3));
+            if (sx, sy) != (x, y) {
+                attend_to_pos(
+                    board,
+                    possibilities_board,
+                    (sx, sy),
+                    space_idx,
+                    &mut is_invalid,
+                );
+            }
+        }
+    } else {
+        unimplemented!(
+            "Not allowed to change the value of an already set space: {:?} to {:?} at {:?}",
+            board[pos],
+            value,
+            pos
+        );
+    }
+    is_invalid
+}
+
 impl SudokuBoard {
-    fn reduce(&mut self) -> PossibilitySpaceBoard {
+    fn reduce(&mut self) -> (PossibilitySpaceBoard, bool) {
         // prepare possibility space
         let mut possibility_space = PossibilitySpaceBoard::new(self);
+
+        let mut is_invalid = false;
 
         loop {
             let mut adjusted = false;
@@ -205,26 +289,29 @@ impl SudokuBoard {
                 possibility_space[(x, y)] = new_possibilities;
 
                 // confirm square if all alternative possibilities are exhausted
-                if let &[(i, _)] = &new_possibilities
+                let remaining_possibilities = new_possibilities
                     .iter()
                     .enumerate()
-                    .filter(|(_, p)| **p)
-                    .collect::<Vec<_>>()[..]
-                {
-                    self[(x, y)] = Some(
-                        (i + 1)
-                            .try_into()
-                            .expect("index will always correspond to a valid space value"),
-                    );
+                    .filter_map(|(i, p)| p.then_some(Space::try_from(i + 1).unwrap()))
+                    .collect::<Vec<_>>();
+                match &remaining_possibilities[..] {
+                    &[] => {
+                        is_invalid = true;
+                        break;
+                    }
+                    &[value] if self[(x, y)].is_none() => {
+                        set(self, &mut possibility_space, (x, y), value);
+                    }
+                    _ => {}
                 }
             }
 
-            if !adjusted {
+            if !adjusted || self.is_solution() {
                 break;
             }
         }
 
-        possibility_space
+        (possibility_space, is_invalid)
     }
 }
 
@@ -350,11 +437,11 @@ impl Iterator for NextSudokuBoardsIterator {
 impl Searchable for SudokuBoard {
     fn next_states(&self) -> impl Iterator<Item = Self> {
         let mut reduced_board = self.clone();
-        let possibilities_board = reduced_board.reduce();
+        let (possibilities_board, is_invalid) = reduced_board.reduce();
         return NextSudokuBoardsIterator {
             reduced_board,
             possibilities_board,
-            index: 0,
+            index: if is_invalid { 81 } else { 0 },
             sub_index: 0,
         };
     }
@@ -397,6 +484,7 @@ fn test_reduction() {
 
 #[test]
 fn test_solve_hard() {
+    use space_search::{search::guided, *};
     #[rustfmt::skip]
     let board_str = 
 "2  5 74 6
@@ -419,6 +507,7 @@ fn test_solve_hard() {
 
 #[test]
 fn test_solve_hard_2() {
+    use space_search::{search::guided, *};
     #[rustfmt::skip]
     let board_str = 
 "  65     
