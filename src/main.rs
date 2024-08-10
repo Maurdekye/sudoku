@@ -376,7 +376,6 @@ struct NextSudokuBoardsIterator {
     index: usize,
     sub_index: usize,
 }
-// static mut COUNTER: usize = 0;
 
 impl Iterator for NextSudokuBoardsIterator {
     type Item = SudokuBoard;
@@ -389,13 +388,6 @@ impl Iterator for NextSudokuBoardsIterator {
                 index,
                 sub_index,
             } = self;
-
-            // unsafe {
-            //     if COUNTER % 1_000_000 == 0 {
-            //         println!("---------\n{reduced_board}");
-            //     }
-            //     COUNTER += 1;
-            // }
 
             if *index >= 81 {
                 return None;
@@ -484,7 +476,7 @@ fn test_reduction() {
 
 #[test]
 fn test_solve_hard() {
-    use space_search::{search::guided, *};
+    use space_search::{search::*, *};
     #[rustfmt::skip]
     let board_str = 
 "2  5 74 6
@@ -507,7 +499,7 @@ fn test_solve_hard() {
 
 #[test]
 fn test_solve_hard_2() {
-    use space_search::{search::guided, *};
+    use space_search::{search::*, *};
     #[rustfmt::skip]
     let board_str = 
 "  65     
@@ -528,22 +520,70 @@ fn test_solve_hard_2() {
     println!("{}", solution);
 }
 
-fn main() {
+#[test]
+fn test_solve_hard_3() {
+    use space_search::{search::*, *};
     #[rustfmt::skip]
     let board_str = 
-"53  7    
-6  195   
- 98    6 
-8   6   3
-4  8 3  1
-7   2   6
- 6    28 
-   419  5
-    8  79";
-    let mut board: SudokuBoard = board_str.parse().unwrap();
+" 293 8456
+5782 61 9
+   1 5 7 
+3 5 2 6  
+     9 4 
+ 91 67   
+ 3  5    
+     29 3
+9 7    24";
+    let board: SudokuBoard = board_str.parse().unwrap();
     println!("initial board:");
     println!("{}", board);
-    board.reduce();
-    println!("after reduction:");
+    let mut searcher: Searcher<guided::no_route::hashable::Manager<_>, _> = Searcher::new(board);
+    let solution = searcher.next().expect("Sudoku board has a solution");
+    println!("solution:");
+    println!("{}", solution);
+}
+
+#[test]
+fn test_solve_hard_4() {
+    use space_search::{search::*, *};
+    #[rustfmt::skip]
+    let board_str = 
+"5 8427   
+ 4  1 7  
+19   3  2
+    6   5
+7     2  
+6 513 9  
+9    15  
+    4  2 
+ 7      8";
+    let board: SudokuBoard = board_str.parse().unwrap();
+    println!("initial board:");
     println!("{}", board);
+    let mut searcher: Searcher<guided::no_route::hashable::Manager<_>, _> = Searcher::new(board);
+    let solution = searcher.next().expect("Sudoku board has a solution");
+    println!("solution:");
+    println!("{}", solution);
+}
+
+fn main() {
+    use space_search::{search::*, *};
+    #[rustfmt::skip]
+    let board_str = 
+" 293 8456
+5782 61 9
+   1 5 7 
+3 5 2 6  
+     9 4 
+ 91 67   
+ 3  5    
+     29 3
+9 7    24";
+    let board: SudokuBoard = board_str.parse().unwrap();
+    println!("initial board:");
+    println!("{}", board);
+    let mut searcher: Searcher<guided::no_route::hashable::Manager<_>, _> = Searcher::new(board);
+    let solution = searcher.next().expect("Sudoku board has a solution");
+    println!("solution:");
+    println!("{}", solution);
 }
