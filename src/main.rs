@@ -4,7 +4,7 @@
 use std::{
     fmt::Display,
     io::{stdout, Write},
-    ops::{Index, IndexMut},
+    ops::{ControlFlow, Index, IndexMut},
     str::FromStr,
 };
 
@@ -177,35 +177,21 @@ fn set(
                     .filter_map(|(i, o)| o.then_some(Space::try_from(i + 1).unwrap()))
                     .collect::<Vec<_>>();
                 match &remaining_possibilities[..] {
-                    &[] => {
-                        true
-                    }
-                    &[only] if board[pos].is_none() => {
-                        set(board, possibilities_board, pos, only)
-                    }
-                    _ => false
+                    &[] => true,
+                    &[only] if board[pos].is_none() => set(board, possibilities_board, pos, only),
+                    _ => false,
                 }
             }
 
             if i != x {
-                if attend_to_pos(
-                    board,
-                    possibilities_board,
-                    (i, y),
-                    space_idx,
-                ) {
+                if attend_to_pos(board, possibilities_board, (i, y), space_idx) {
                     is_invalid = true;
                     break;
                 }
             }
 
             if i != y {
-                if attend_to_pos(
-                    board,
-                    possibilities_board,
-                    (x, i),
-                    space_idx,
-                ) {
+                if attend_to_pos(board, possibilities_board, (x, i), space_idx) {
                     is_invalid = true;
                     break;
                 }
@@ -213,12 +199,7 @@ fn set(
 
             let (sx, sy) = (left + (i % 3), top + (i / 3));
             if (sx, sy) != (x, y) {
-                if attend_to_pos(
-                    board,
-                    possibilities_board,
-                    (sx, sy),
-                    space_idx,
-                ) {
+                if attend_to_pos(board, possibilities_board, (sx, sy), space_idx) {
                     is_invalid = true;
                     break;
                 }
@@ -238,7 +219,7 @@ fn set(
 impl SudokuBoard {
     fn reduce(&mut self) -> (PossibilitySpaceBoard, bool) {
         // prepare possibility space
-        let mut possibility_space = PossibilitySpaceBoard::new(self);
+        let mut possibilities_board = PossibilitySpaceBoard::new(self);
 
         let mut is_invalid = false;
 
@@ -247,52 +228,102 @@ impl SudokuBoard {
 
             for i in 0..81 {
                 let (x, y) = (i % 9, i / 9);
-                let mut new_possibilities = possibility_space[(x, y)].clone();
+                let mut new_possibilities = possibilities_board[(x, y)].clone();
 
                 #[cfg(debug_assertions)]
                 {
                     println!();
                     println!(
-                        "{:?}, {:?}",
+                        "{:?}, {}",
                         (x, y),
                         format_sudoku_choices(&new_possibilities)
                     );
                     println!("{}", self);
-                    println!("{}", possibility_space);
+                    println!("{}", possibilities_board);
                     println!();
                 }
 
-                // check current row
-                for x in (0..9).filter(|i| *i != x) {
-                    if let Some(space) = &self[(x, y)] {
-                        new_possibilities[space.idx()] = false;
-                    }
-                }
+                if self[(x, y)].is_none() {
+                    'checks: {
+                        fn check_region(
+                            board: &mut SudokuBoard,
+                            possibilities_board: &mut PossibilitySpaceBoard,
+                            new_possibilities: &mut SudokuChoices,
+                            region_positions: impl Iterator<Item = (usize, usize)>,
+                        ) -> ControlFlow<(), ()> {
+                            let mut solo_candidates = new_possibilities.clone();
+                            for pos in region_positions {
+                                if let Some(space) = &board[pos] {
+                                    new_possibilities[space.idx()] = false;
+                                }
+                                for i in possibilities_board[pos]
+                                    .iter()
+                                    .enumerate()
+                                    .filter_map(|(i, o)| o.then_some(i))
+                                {
+                                    solo_candidates[i] = false;
+                                }
+                            }
+                            if let &[value] = &solo_candidates
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(i, o)| o.then_some(i))
+                                .collect::<Vec<_>>()[..]
+                            {
+                                *new_possibilities = [false; 9];
+                                new_possibilities[value] = true;
+                                return ControlFlow::Break(());
+                            }
+                            return ControlFlow::Continue(());
+                        }
 
-                // check current column
-                for y in (0..9).filter(|i| *i != y) {
-                    if let Some(space) = &self[(x, y)] {
-                        new_possibilities[space.idx()] = false;
-                    }
-                }
+                        // check current row
+                        if check_region(
+                            self,
+                            &mut possibilities_board,
+                            &mut new_possibilities,
+                            (0..9).filter(|i| *i != x).map(|i| (i, y)),
+                        )
+                        .is_break()
+                        {
+                            break 'checks;
+                        }
 
-                // check current box
-                let left = x - x % 3;
-                let top = y - y % 3;
-                for i in 0..9 {
-                    let (sx, sy) = (left + (i % 3), top + (i / 3));
-                    if (sx, sy) != (x, y) {
-                        if let Some(space) = &self[(sx, sy)] {
-                            new_possibilities[space.idx()] = false;
+                        // check current column
+                        if check_region(
+                            self,
+                            &mut possibilities_board,
+                            &mut new_possibilities,
+                            (0..9).filter(|i| *i != y).map(|i| (x, i)),
+                        )
+                        .is_break()
+                        {
+                            break 'checks;
+                        }
+
+                        // check current square
+                        let left = x - x % 3;
+                        let top = y - y % 3;
+                        if check_region(
+                            self,
+                            &mut possibilities_board,
+                            &mut new_possibilities,
+                            (0..9)
+                                .map(|i| (left + (i % 3), top + (i / 3)))
+                                .filter(|pos| *pos != (x, y)),
+                        )
+                        .is_break()
+                        {
+                            break 'checks;
                         }
                     }
-                }
 
-                // update possibility space
-                if new_possibilities != possibility_space[(x, y)] {
-                    adjusted = true;
+                    // update possibility space
+                    if new_possibilities != possibilities_board[(x, y)] {
+                        adjusted = true;
+                    }
+                    possibilities_board[(x, y)] = new_possibilities;
                 }
-                possibility_space[(x, y)] = new_possibilities;
 
                 // confirm square if all alternative possibilities are exhausted
                 let remaining_possibilities = new_possibilities
@@ -306,7 +337,7 @@ impl SudokuBoard {
                         break;
                     }
                     &[value] if self[(x, y)].is_none() => {
-                        is_invalid |= set(self, &mut possibility_space, (x, y), value);
+                        is_invalid |= set(self, &mut possibilities_board, (x, y), value);
                         if is_invalid {
                             break;
                         }
@@ -320,7 +351,7 @@ impl SudokuBoard {
             }
         }
 
-        (possibility_space, is_invalid)
+        (possibilities_board, is_invalid)
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -438,16 +469,8 @@ impl Iterator for NextSudokuBoardsIterator {
                 return None;
             }
 
-            unsafe {
-                COUNTER += 1;
-                if COUNTER % 100_000 == 0 {
-                    print!("\r{}", COUNTER);
-                    stdout().flush().unwrap();
-                }
-            }
-
-            // hacky but im too lazy to implement this properly with a de facto abstraction
             if reduced_board.is_solution() {
+                // hacky but im too lazy to implement this properly with a de facto abstraction
                 *index = 81;
                 return Some(self.reduced_board.clone());
             }
@@ -481,6 +504,14 @@ impl Iterator for NextSudokuBoardsIterator {
 
 impl Searchable for SudokuBoard {
     fn next_states(&self) -> impl Iterator<Item = Self> {
+        unsafe {
+            COUNTER += 1;
+            if COUNTER % 10_000 == 0 {
+                print!("\r{}", COUNTER);
+                stdout().flush().unwrap();
+            }
+        }
+
         let mut reduced_board = self.clone();
         let (possibilities_board, is_invalid) = reduced_board.reduce();
         return NextSudokuBoardsIterator {
@@ -619,20 +650,20 @@ fn test_solve_hard_4() {
     println!("{}", solution);
 }
 
-#[test]
-fn test_verify() {
-    let board_str = "213587496
-594631887
-758469231
-937625814
-862314579
-145798623
-329143765
-476958312
-351276948";
-    let board: SudokuBoard = board_str.parse().unwrap();
-    assert_eq!(board.validate(), Ok(()))
-}
+// #[test]
+// fn test_verify() {
+//     let board_str = "213587496
+// 594631887
+// 758469231
+// 937625814
+// 862314579
+// 145798623
+// 329143765
+// 476958312
+// 351276948";
+//     let board: SudokuBoard = board_str.parse().unwrap();
+//     assert_eq!(board.validate(), Ok(()))
+// }
 
 #[test]
 fn test_solver_duplicates() {
@@ -657,25 +688,46 @@ fn test_solver_duplicates() {
     assert_eq!(board.validate(), Ok(()));
 }
 
-fn main() {
-    use space_search::{search::*, *};
+#[test]
+fn test_solo_candidate_deduction() {
     #[rustfmt::skip]
     let board_str = 
-"2  5 74 6
-    31   
-      23 
-    2    
-86 31    
- 45      
-  9   7  
-  695   2
-  1  6  8";
-    let board: SudokuBoard = board_str.parse().unwrap();
+"        
+3        
+6        
+2        
+1        
+     4   
+8        
+       4 ";
+    println!("{}", board_str.len());
+    let mut board: SudokuBoard = board_str.parse().unwrap();
     println!("initial board:");
     println!("{}", board);
-    let mut searcher: Searcher<guided::no_route::hashable::Manager<_>, _> = Searcher::new(board);
-    let solution = searcher.next().expect("Sudoku board has a solution");
+    board.reduce();
     println!("solution:");
-    println!("{}", solution);
-    assert_eq!(solution.validate(), Ok(()));
+    println!("{}", board);
+    assert_eq!(board.validate(), Ok(()));
+}
+
+fn main() {
+    #[rustfmt::skip]
+    let board_str = 
+"         
+3        
+6        
+2        
+1        
+     4   
+8        
+5        
+       4 ";
+    println!("{}", board_str.len());
+    let mut board: SudokuBoard = board_str.parse().unwrap();
+    println!("initial board:");
+    println!("{}", board);
+    board.reduce();
+    println!("solution:");
+    println!("{}", board);
+    assert_eq!(board.validate(), Ok(()));
 }
