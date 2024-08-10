@@ -650,55 +650,18 @@ fn test_solve_hard_4() {
     println!("{}", solution);
 }
 
-// #[test]
-// fn test_verify() {
-//     let board_str = "213587496
-// 594631887
-// 758469231
-// 937625814
-// 862314579
-// 145798623
-// 329143765
-// 476958312
-// 351276948";
-//     let board: SudokuBoard = board_str.parse().unwrap();
-//     assert_eq!(board.validate(), Ok(()))
-// }
-
-#[test]
-fn test_solver_duplicates() {
-    // use space_search::{search::*, *};
-    #[rustfmt::skip]
-    let board_str = 
-"213587496
-    31   
-      23 
-937 25  4
-86231  7 
-1457   23
- 29 4 76 
- 7695   2
-  1276  8";
-    let mut board: SudokuBoard = board_str.parse().unwrap();
-    println!("initial board:");
-    println!("{}", board);
-    board.reduce();
-    println!("solution:");
-    println!("{}", board);
-    assert_eq!(board.validate(), Ok(()));
-}
-
 #[test]
 fn test_solo_candidate_deduction() {
     #[rustfmt::skip]
     let board_str = 
-"        
+"         
 3        
 6        
 2        
 1        
      4   
 8        
+5        
        4 ";
     println!("{}", board_str.len());
     let mut board: SudokuBoard = board_str.parse().unwrap();
