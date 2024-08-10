@@ -711,23 +711,24 @@ fn test_solo_candidate_deduction() {
 }
 
 fn main() {
+    use space_search::{search::*, *};
     #[rustfmt::skip]
     let board_str = 
-"         
-3        
-6        
-2        
-1        
-     4   
-8        
-5        
-       4 ";
-    println!("{}", board_str.len());
-    let mut board: SudokuBoard = board_str.parse().unwrap();
+"2  5 74 6
+    31   
+      23 
+    2    
+86 31    
+ 45      
+  9   7  
+  695   2
+  1  6  8";
+    let board: SudokuBoard = board_str.parse().unwrap();
     println!("initial board:");
     println!("{}", board);
-    board.reduce();
+    let mut searcher: Searcher<guided::no_route::hashable::Manager<_>, _> = Searcher::new(board);
+    let solution = searcher.next().expect("Sudoku board has a solution");
     println!("solution:");
-    println!("{}", board);
-    assert_eq!(board.validate(), Ok(()));
+    println!("{}", solution);
+    assert_eq!(solution.validate(), Ok(()));
 }
