@@ -17,10 +17,6 @@ impl<Cell> Board<Cell> {
     fn iter(&self) -> impl Iterator<Item = &Cell> {
         self.0.iter()
     }
-
-    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Cell> {
-        self.0.iter_mut()
-    }
 }
 
 impl<Cell> Index<(usize, usize)> for Board<Cell> {
@@ -171,13 +167,7 @@ impl Display for SudokuChoices {
 type PossibilitySpaceBoard = Board<SudokuChoices>;
 impl PossibilitySpaceBoard {
     fn new(board: &SudokuBoard) -> Self {
-        let mut possibility_space = Board([SudokuChoices::new(None); _]);
-        for (possibilities, space) in possibility_space.iter_mut().zip(board.iter()) {
-            if let Some(space) = space {
-                *possibilities = SudokuChoices::new(Some(*space));
-            }
-        }
-        possibility_space
+        Board(board.0.map(SudokuChoices::new))
     }
 }
 
@@ -199,72 +189,73 @@ impl Display for PossibilitySpaceBoard {
     }
 }
 
-fn set(
-    board: &mut SudokuBoard,
-    possibilities_board: &mut PossibilitySpaceBoard,
-    pos: (usize, usize),
-    space: Space,
-) -> bool {
-    let mut is_invalid = false;
-    if board[pos].is_none() {
-        board[pos] = Some(space);
-        possibilities_board[pos] = SudokuChoices::new(Some(space));
 
-        let (x, y) = pos;
-        let (left, top) = ((x / 3) * 3, (y / 3) * 3);
-        for i in 0..9 {
-            fn attend_to_pos(
-                board: &mut SudokuBoard,
-                possibilities_board: &mut PossibilitySpaceBoard,
-                pos: (usize, usize),
-                space: Space,
-            ) -> bool {
-                possibilities_board[pos][space] = false;
-                let remaining_possibilities =
-                    possibilities_board[pos].iter().take(2).collect::<Vec<_>>();
-                match &remaining_possibilities[..] {
-                    &[] => true,
-                    &[only] if board[pos].is_none() => set(board, possibilities_board, pos, only),
-                    _ => false,
-                }
-            }
-
-            if i != x {
-                if attend_to_pos(board, possibilities_board, (i, y), space) {
-                    is_invalid = true;
-                    break;
-                }
-            }
-
-            if i != y {
-                if attend_to_pos(board, possibilities_board, (x, i), space) {
-                    is_invalid = true;
-                    break;
-                }
-            }
-
-            let (sx, sy) = (left + (i % 3), top + (i / 3));
-            if (sx, sy) != (x, y) {
-                if attend_to_pos(board, possibilities_board, (sx, sy), space) {
-                    is_invalid = true;
-                    break;
-                }
-            }
-        }
-    } else {
-        unimplemented!(
-            "Not allowed to change the value of an already set space: {:?} to {:?} at {:?}",
-            board[pos],
-            space,
-            pos
-        );
-    }
-    is_invalid
-}
 
 impl SudokuBoard {
     fn reduce(&mut self) -> (PossibilitySpaceBoard, bool) {
-        // prepare possibility space
+        fn set(
+            board: &mut SudokuBoard,
+            possibilities_board: &mut PossibilitySpaceBoard,
+            pos: (usize, usize),
+            space: Space,
+        ) -> bool {
+            let mut is_invalid = false;
+            if board[pos].is_none() {
+                board[pos] = Some(space);
+                possibilities_board[pos] = SudokuChoices::new(Some(space));
+        
+                let (x, y) = pos;
+                let (left, top) = ((x / 3) * 3, (y / 3) * 3);
+                for i in 0..9 {
+                    fn attend_to_pos(
+                        board: &mut SudokuBoard,
+                        possibilities_board: &mut PossibilitySpaceBoard,
+                        pos: (usize, usize),
+                        space: Space,
+                    ) -> bool {
+                        possibilities_board[pos][space] = false;
+                        let remaining_possibilities =
+                            possibilities_board[pos].iter().take(2).collect::<Vec<_>>();
+                        match &remaining_possibilities[..] {
+                            &[] => true,
+                            &[only] if board[pos].is_none() => set(board, possibilities_board, pos, only),
+                            _ => false,
+                        }
+                    }
+        
+                    if i != x {
+                        if attend_to_pos(board, possibilities_board, (i, y), space) {
+                            is_invalid = true;
+                            break;
+                        }
+                    }
+        
+                    if i != y {
+                        if attend_to_pos(board, possibilities_board, (x, i), space) {
+                            is_invalid = true;
+                            break;
+                        }
+                    }
+        
+                    let (sx, sy) = (left + (i % 3), top + (i / 3));
+                    if (sx, sy) != (x, y) {
+                        if attend_to_pos(board, possibilities_board, (sx, sy), space) {
+                            is_invalid = true;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                unimplemented!(
+                    "Not allowed to change the value of an already set space: {:?} to {:?} at {:?}",
+                    board[pos],
+                    space,
+                    pos
+                );
+            }
+            is_invalid
+        }
+        
         let mut possibilities_board = PossibilitySpaceBoard::new(self);
 
         let mut is_invalid = false;
@@ -393,6 +384,7 @@ impl SudokuBoard {
         (possibilities_board, is_invalid)
     }
 
+    #[allow(unused)]
     fn validate(&self) -> Result<(), String> {
         fn verify_set(it: impl Iterator<Item = Space>) -> Result<(), Space> {
             let mut choices = [false; 9];
@@ -537,7 +529,7 @@ impl Iterator for NextSudokuBoardsIterator {
                 };
                 return Some(new_board);
             }
-            
+
             *space_index = match space_index.succ() {
                 Some(next_space) => next_space,
                 None => {
