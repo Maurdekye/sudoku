@@ -343,12 +343,12 @@ impl SudokuGame {
 
             for i in 0..81 {
                 let (x, y) = (i % 9, i / 9);
-                println!(
-                    "\npass on square ({x}, {y}): {:?}, {}",
-                    self.board[(x, y)],
-                    format_bool_array(&self.possibilities_board[(x, y)])
-                );
-                println!("before:\n{:?}", self);
+                // println!(
+                //     "\npass on square ({x}, {y}): {:?}, {}",
+                //     self.board[(x, y)],
+                //     format_bool_array(&self.possibilities_board[(x, y)])
+                // );
+                // println!("before:\n{:?}", self);
 
                 if self.board[(x, y)].is_some() {
                     continue;
@@ -693,19 +693,20 @@ fn test_solve_hard_4() {
 fn main() {
     #[rustfmt::skip]
     let board_str = 
-"53  7    
-6  195   
- 98    6 
-8   6   3
-4  8 3  1
-7   2   6
- 6    28 
-   419  5
-    8  79";
-    let mut game = SudokuGame::new(board_str.parse().unwrap());
+"5 8427   
+ 4  1 7  
+19   3  2
+    6   5
+7     2  
+6 513 9  
+9    15  
+    4  2 
+ 7      8";
+    let game = SudokuGame::new(board_str.parse().unwrap());
     println!("initial board:");
     println!("{}", game);
-    game.reduce();
-    println!("after reduction:");
-    println!("{}", game);
+    let mut searcher: Searcher<guided::no_route::hashable::Manager<_>, _> = Searcher::new(game);
+    let solution = searcher.next().expect("Sudoku board has a solution");
+    println!("solution:");
+    println!("{}", solution);
 }
