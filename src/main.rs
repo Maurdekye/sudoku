@@ -306,12 +306,46 @@ impl SudokuBoard {
                 }
             }
 
-            if !adjusted || self.is_solution() {
+            if !adjusted {
                 break;
             }
         }
 
         (possibility_space, is_invalid)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        fn verify_set(it: impl Iterator<Item = Space>) -> Result<(), Space> {
+            let mut choices = [false; 9];
+            for space in it {
+                let space_idx = space.idx();
+                if choices[space_idx] {
+                    return Err(space);
+                }
+                choices[space_idx] = true;
+            }
+            Ok(())
+        }
+        for i in 0..9 {
+            if let Err(invalid_space) = verify_set((0..9).filter_map(|x| self[(x, i)])) {
+                Err(format!("Row {i} is invalid: duplicate {invalid_space:?}"))?;
+            }
+            if let Err(invalid_space) = verify_set((0..9).filter_map(|y| self[(i, y)])) {
+                Err(format!(
+                    "Column {i} is invalid: duplicate {invalid_space:?}"
+                ))?;
+            }
+            let (left, top) = ((i % 3) * 3, (i / 3) * 3);
+            if let Err(invalid_space) = verify_set((0..9).filter_map(|i| {
+                let (sx, sy) = (left + (i % 3), top + (i / 3));
+                self[(sx, sy)]
+            })) {
+                Err(format!(
+                    "Square {i} is invalid: duplicate {invalid_space:?}"
+                ))?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -566,19 +600,57 @@ fn test_solve_hard_4() {
     println!("{}", solution);
 }
 
+#[test]
+fn test_verify() {
+    let board_str = "213587496
+594631887
+758469231
+937625814
+862314579
+145798623
+329143765
+476958312
+351276948";
+    let board: SudokuBoard = board_str.parse().unwrap();
+    assert_eq!(board.validate(), Ok(()))
+}
+
+#[test]
+fn test_solver_duplicates() {
+    // use space_search::{search::*, *};
+    #[rustfmt::skip]
+    let board_str = 
+"213587496
+    31   
+      23 
+937 25  4
+86231  7 
+1457   23
+ 29 4 76 
+ 7695   2
+  1276  8";
+    let mut board: SudokuBoard = board_str.parse().unwrap();
+    println!("initial board:");
+    println!("{}", board);
+    board.reduce();
+    println!("solution:");
+    println!("{}", board);
+    assert_eq!(board.validate(), Ok(()));
+}
+
 fn main() {
     use space_search::{search::*, *};
     #[rustfmt::skip]
     let board_str = 
-" 293 8456
-5782 61 9
-   1 5 7 
-3 5 2 6  
-     9 4 
- 91 67   
- 3  5    
-     29 3
-9 7    24";
+"2  5 74 6
+    31   
+      23 
+    2    
+86 31    
+ 45      
+  9   7  
+  695   2
+  1  6  8";
     let board: SudokuBoard = board_str.parse().unwrap();
     println!("initial board:");
     println!("{}", board);
@@ -586,4 +658,5 @@ fn main() {
     let solution = searcher.next().expect("Sudoku board has a solution");
     println!("solution:");
     println!("{}", solution);
+    assert_eq!(solution.validate(), Ok(()));
 }
