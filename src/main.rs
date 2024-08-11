@@ -181,6 +181,7 @@ impl Display for PossibilitySpaceBoard {
     }
 }
 
+#[derive(Debug)]
 enum SudokuRegion {
     Column(usize),
     Row(usize),
@@ -198,7 +199,7 @@ impl SudokuRegion {
     }
 
     fn square_of((x, y): BoardPosition) -> SudokuRegion {
-        Square((y / 9) * 3 + (x / 3))
+        Square((y / 3) * 3 + (x / 3))
     }
 }
 
@@ -246,6 +247,10 @@ impl SudokuBoard {
             pos: BoardPosition,
             space: Space,
         ) -> bool {
+            #[cfg(debug_assertions)]
+            {
+                println!("Setting {pos:?} to {space:?}");
+            }
             let mut is_invalid = false;
             if board[pos].is_none() {
                 board[pos] = Some(space);
@@ -258,6 +263,10 @@ impl SudokuBoard {
                     .chain(SudokuRegion::square_of(pos))
                     .filter(|&pos| pos != (x, y))
                 {
+                    #[cfg(debug_assertions)]
+                    {
+                        println!("updating {pos:?}");
+                    }
                     possibilities_board[pos][space] = false;
                     let remaining_possibilities =
                         possibilities_board[pos].iter().take(2).collect::<Vec<_>>();
