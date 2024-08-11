@@ -310,7 +310,7 @@ impl SudokuBoard {
                     println!("{}", possibilities_board);
                     println!();
 
-                    std::io::Read::read(&mut std::io::stdin(), &mut [0]).unwrap();
+                    // std::io::Read::read(&mut std::io::stdin(), &mut [0]).unwrap();
                 }
 
                 if self[pos].is_none() {
@@ -662,12 +662,14 @@ fn main() {
   9   7  
   695   2
   1  6  8";
-    let board: SudokuBoard = board_str.parse().unwrap();
+    let mut board: SudokuBoard = board_str.parse().unwrap();
+
     println!("initial board:");
     println!("{}", board);
-    let mut searcher: Searcher<guided::no_route::hashable::Manager<_>, _> = Searcher::new(board);
-    let solution = searcher.next().expect("Sudoku board has a solution");
-    println!("solution:");
-    println!("{}", solution);
-    assert_eq!(solution.validate(), Ok(()));
+
+    let (possibilities, _) = board.reduce();
+
+    println!("after reduction:");
+    println!("{}", board);
+    println!("{}", possibilities);
 }
