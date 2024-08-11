@@ -2,10 +2,7 @@
 #![feature(generic_arg_infer)]
 #![feature(array_chunks)]
 use std::{
-    fmt::Display,
-    io::{stdout, Write},
-    ops::{ControlFlow, Index, IndexMut},
-    str::FromStr,
+    fmt::Display, io::{stdout, Write}, iter::empty, ops::{Index, IndexMut}, str::FromStr
 };
 
 use space_search::{Scoreable, Searchable, SolutionIdentifiable};
@@ -17,18 +14,24 @@ impl<Cell> Board<Cell> {
     fn iter(&self) -> impl Iterator<Item = &Cell> {
         self.0.iter()
     }
+
+    fn iter_positions() -> impl Iterator<Item = BoardPosition> {
+        (0..81).map(|i| (i % 9, i / 9))
+    }
 }
 
-impl<Cell> Index<(usize, usize)> for Board<Cell> {
+type BoardPosition = (usize, usize);
+
+impl<Cell> Index<BoardPosition> for Board<Cell> {
     type Output = Cell;
 
-    fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
+    fn index(&self, (x, y): BoardPosition) -> &Self::Output {
         &self.0[y * 9 + x]
     }
 }
 
-impl<Cell> IndexMut<(usize, usize)> for Board<Cell> {
-    fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Self::Output {
+impl<Cell> IndexMut<BoardPosition> for Board<Cell> {
+    fn index_mut(&mut self, (x, y): BoardPosition) -> &mut Self::Output {
         &mut self.0[y * 9 + x]
     }
 }
@@ -189,14 +192,68 @@ impl Display for PossibilitySpaceBoard {
     }
 }
 
+enum SudokuRegion {
+    Column(usize),
+    Row(usize),
+    Square(usize),
+}
+use SudokuRegion::*;
 
+impl SudokuRegion {
+    fn row_of((_, y): BoardPosition) -> SudokuRegion {
+        Row(y)
+    }
+
+    fn column_of((x, _): BoardPosition) -> SudokuRegion {
+        Column(x)
+    }
+
+    fn square_of((x, y): BoardPosition) -> SudokuRegion {
+        Square((y / 9) * 3 + (x / 3))
+    }
+}
+
+impl IntoIterator for SudokuRegion {
+    type Item = BoardPosition;
+
+    type IntoIter = SudokuRegionIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SudokuRegionIter {
+            region: self,
+            index: Some(0),
+        }
+    }
+}
+
+struct SudokuRegionIter {
+    region: SudokuRegion,
+    index: Option<usize>,
+}
+
+impl Iterator for SudokuRegionIter {
+    type Item = BoardPosition;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.index?;
+        let next_pos = match &self.region {
+            &Column(col) => (col, index),
+            &Row(row) => (index, row),
+            &Square(square) => {
+                ((square % 3) * 3 + (index % 3), (square / 3) * 3 + (index / 3))
+            },
+        };
+        self.index = (index < 8).then_some(index + 1);
+        Some(next_pos)
+    }
+}
 
 impl SudokuBoard {
     fn reduce(&mut self) -> (PossibilitySpaceBoard, bool) {
         fn set(
             board: &mut SudokuBoard,
             possibilities_board: &mut PossibilitySpaceBoard,
-            pos: (usize, usize),
+            pos: BoardPosition,
             space: Space,
         ) -> bool {
             let mut is_invalid = false;
@@ -205,44 +262,22 @@ impl SudokuBoard {
                 possibilities_board[pos] = SudokuChoices::new(Some(space));
         
                 let (x, y) = pos;
-                let (left, top) = ((x / 3) * 3, (y / 3) * 3);
-                for i in 0..9 {
-                    fn attend_to_pos(
-                        board: &mut SudokuBoard,
-                        possibilities_board: &mut PossibilitySpaceBoard,
-                        pos: (usize, usize),
-                        space: Space,
-                    ) -> bool {
-                        possibilities_board[pos][space] = false;
-                        let remaining_possibilities =
-                            possibilities_board[pos].iter().take(2).collect::<Vec<_>>();
-                        match &remaining_possibilities[..] {
-                            &[] => true,
-                            &[only] if board[pos].is_none() => set(board, possibilities_board, pos, only),
-                            _ => false,
-                        }
-                    }
-        
-                    if i != x {
-                        if attend_to_pos(board, possibilities_board, (i, y), space) {
-                            is_invalid = true;
-                            break;
-                        }
-                    }
-        
-                    if i != y {
-                        if attend_to_pos(board, possibilities_board, (x, i), space) {
-                            is_invalid = true;
-                            break;
-                        }
-                    }
-        
-                    let (sx, sy) = (left + (i % 3), top + (i / 3));
-                    if (sx, sy) != (x, y) {
-                        if attend_to_pos(board, possibilities_board, (sx, sy), space) {
-                            is_invalid = true;
-                            break;
-                        }
+                for pos in empty()
+                    .chain(SudokuRegion::row_of(pos))
+                    .chain(SudokuRegion::column_of(pos))
+                    .chain(SudokuRegion::square_of(pos))
+                    .filter(|&pos| pos != (x, y))
+                {
+                    possibilities_board[pos][space] = false;
+                    let remaining_possibilities =
+                        possibilities_board[pos].iter().take(2).collect::<Vec<_>>();
+                    is_invalid = match &remaining_possibilities[..] {
+                        &[] => true,
+                        &[only] if board[pos].is_none() => set(board, possibilities_board, pos, only),
+                        _ => false,
+                    };
+                    if is_invalid {
+                        break;
                     }
                 }
             } else {
@@ -260,101 +295,60 @@ impl SudokuBoard {
 
         let mut is_invalid = false;
 
-        loop {
+        'outer: loop {
             let mut adjusted = false;
 
-            for i in 0..81 {
-                let (x, y) = (i % 9, i / 9);
-                let mut new_possibilities = possibilities_board[(x, y)].clone();
+            for pos in SudokuBoard::iter_positions() {
+                let mut new_possibilities = possibilities_board[pos].clone();
 
                 #[cfg(debug_assertions)]
                 {
                     println!();
                     println!(
                         "{:?}, {}",
-                        (x, y),
+                        pos,
                         new_possibilities
                     );
                     println!("{}", self);
                     println!("{}", possibilities_board);
                     println!();
+
+                    std::io::Read::read(&mut std::io::stdin(), &mut [0]).unwrap();
                 }
 
-                if self[(x, y)].is_none() {
-                    'checks: {
-                        fn check_region(
-                            board: &mut SudokuBoard,
-                            possibilities_board: &mut PossibilitySpaceBoard,
-                            new_possibilities: &mut SudokuChoices,
-                            region_positions: impl Iterator<Item = (usize, usize)>,
-                        ) -> ControlFlow<(), ()> {
-                            let mut solo_candidates = new_possibilities.clone();
-                            for pos in region_positions {
-                                if let Some(space) = board[pos] {
-                                    new_possibilities[space] = false;
-                                }
-                                for space in possibilities_board[pos]
-                                    .iter()
-                                {
-                                    solo_candidates[space] = false;
-                                }
+                if self[pos].is_none() {
+                    let not_self = |&region_pos: &BoardPosition| pos != region_pos;
+
+                    for region in [
+                        SudokuRegion::row_of(pos).into_iter().filter(not_self),
+                        SudokuRegion::column_of(pos).into_iter().filter(not_self),
+                        SudokuRegion::square_of(pos).into_iter().filter(not_self)
+                    ] {
+                        let mut solo_candidates = new_possibilities.clone();
+                        for pos in region {
+                            if let Some(space) = self[pos] {
+                                new_possibilities[space] = false;
                             }
-                            if let &[value] = &solo_candidates
-                                .iter().take(2)
-                                .collect::<Vec<_>>()[..]
+                            for space in possibilities_board[pos]
+                                .iter()
                             {
-                                *new_possibilities = SudokuChoices::new(Some(value));
-                                return ControlFlow::Break(());
+                                solo_candidates[space] = false;
                             }
-                            return ControlFlow::Continue(());
                         }
-
-                        // check current row
-                        if check_region(
-                            self,
-                            &mut possibilities_board,
-                            &mut new_possibilities,
-                            (0..9).filter(|i| *i != x).map(|i| (i, y)),
-                        )
-                        .is_break()
+                        if let &[value] = &solo_candidates
+                            .iter().take(2)
+                            .collect::<Vec<_>>()[..]
                         {
-                            break 'checks;
-                        }
-
-                        // check current column
-                        if check_region(
-                            self,
-                            &mut possibilities_board,
-                            &mut new_possibilities,
-                            (0..9).filter(|i| *i != y).map(|i| (x, i)),
-                        )
-                        .is_break()
-                        {
-                            break 'checks;
-                        }
-
-                        // check current square
-                        let left = x - x % 3;
-                        let top = y - y % 3;
-                        if check_region(
-                            self,
-                            &mut possibilities_board,
-                            &mut new_possibilities,
-                            (0..9)
-                                .map(|i| (left + (i % 3), top + (i / 3)))
-                                .filter(|pos| *pos != (x, y)),
-                        )
-                        .is_break()
-                        {
-                            break 'checks;
+                            new_possibilities = SudokuChoices::new(Some(value));
+                            break;
                         }
                     }
 
                     // update possibility space
-                    if new_possibilities != possibilities_board[(x, y)] {
+                    if new_possibilities != possibilities_board[pos] {
                         adjusted = true;
                     }
-                    possibilities_board[(x, y)] = new_possibilities;
+                    possibilities_board[pos] = new_possibilities;
                 }
 
                 // confirm square if all alternative possibilities are exhausted
@@ -364,15 +358,14 @@ impl SudokuBoard {
                 match &remaining_possibilities[..] {
                     &[] => {
                         is_invalid = true;
-                        break;
                     }
-                    &[value] if self[(x, y)].is_none() => {
-                        is_invalid |= set(self, &mut possibilities_board, (x, y), value);
-                        if is_invalid {
-                            break;
-                        }
+                    &[value] if self[pos].is_none() => {
+                        is_invalid |= set(self, &mut possibilities_board, pos, value);
                     }
                     _ => {}
+                }
+                if is_invalid {
+                    break 'outer;
                 }
             }
 
@@ -387,30 +380,26 @@ impl SudokuBoard {
     #[allow(unused)]
     fn validate(&self) -> Result<(), String> {
         fn verify_set(it: impl Iterator<Item = Space>) -> Result<(), Space> {
-            let mut choices = [false; 9];
+            let mut choices = SudokuChoices::new(None);
             for space in it {
-                let space_idx = space.idx();
-                if choices[space_idx] {
+                if !choices[space] {
                     return Err(space);
                 }
-                choices[space_idx] = true;
+                choices[space] = false;
             }
             Ok(())
         }
         for i in 0..9 {
-            if let Err(invalid_space) = verify_set((0..9).filter_map(|x| self[(x, i)])) {
+            let space_at = |pos| self[pos];
+            if let Err(invalid_space) = verify_set(Row(i).into_iter().filter_map(space_at)) {
                 Err(format!("Row {i} is invalid: duplicate {invalid_space:?}"))?;
             }
-            if let Err(invalid_space) = verify_set((0..9).filter_map(|y| self[(i, y)])) {
+            if let Err(invalid_space) = verify_set(Column(i).into_iter().filter_map(space_at)) {
                 Err(format!(
                     "Column {i} is invalid: duplicate {invalid_space:?}"
                 ))?;
             }
-            let (left, top) = ((i % 3) * 3, (i / 3) * 3);
-            if let Err(invalid_space) = verify_set((0..9).filter_map(|i| {
-                let (sx, sy) = (left + (i % 3), top + (i / 3));
-                self[(sx, sy)]
-            })) {
+            if let Err(invalid_space) = verify_set(Square(i).into_iter().filter_map(space_at)) {
                 Err(format!(
                     "Square {i} is invalid: duplicate {invalid_space:?}"
                 ))?;
@@ -508,27 +497,22 @@ impl Iterator for NextSudokuBoardsIterator {
                 return Some(self.reduced_board.clone());
             }
 
-            let (x, y) = (*board_index % 9, *board_index / 9);
+            let pos = (*board_index % 9, *board_index / 9);
 
-            if reduced_board[(x, y)].is_some() {
+            if reduced_board[pos].is_some() {
                 *board_index += 1;
                 continue;
             }
 
-            let possibilities = &possibilities_board[(x, y)];
+            let possibilities = &possibilities_board[pos];
 
-            if possibilities[*space_index] {
+            let new_board = if possibilities[*space_index] {
                 let mut new_board = reduced_board.clone();
-                new_board[(x, y)] = Some(*space_index);
-                *space_index = match space_index.succ() {
-                    Some(next_space) => next_space,
-                    None => {
-                        *board_index += 1;
-                        Space::One
-                    }
-                };
-                return Some(new_board);
-            }
+                new_board[pos] = Some(*space_index);
+                Some(new_board)
+            } else {
+                None
+            };
 
             *space_index = match space_index.succ() {
                 Some(next_space) => next_space,
@@ -537,6 +521,10 @@ impl Iterator for NextSudokuBoardsIterator {
                     Space::One
                 }
             };
+
+            if let Some(new_board) = new_board {
+                return Some(new_board);
+            }
         }
     }
 }
