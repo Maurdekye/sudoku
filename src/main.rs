@@ -455,7 +455,7 @@ impl Display for SudokuBoard {
 }
 
 enum NextBoardStates<I> {
-    Solution(Option<SudokuBoard>),
+    SolutionOrReduction(Option<SudokuBoard>),
     States(I),
     None,
 }
@@ -469,7 +469,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             NextBoardStates::None => None,
-            NextBoardStates::Solution(board) => board.take(),
+            NextBoardStates::SolutionOrReduction(board) => board.take(),
             NextBoardStates::States(iter) => iter.next(),
         }
     }
@@ -491,8 +491,8 @@ impl Searchable for SudokuBoard {
         let (possibilities_board, is_invalid) = reduced_board.reduce();
         if is_invalid {
             NextBoardStates::None
-        } else if reduced_board.is_solution() {
-            NextBoardStates::Solution(Some(reduced_board))
+        } else if reduced_board.is_solution() || &reduced_board != self {
+            NextBoardStates::SolutionOrReduction(Some(reduced_board))
         } else {
             NextBoardStates::States(
                 SudokuBoard::iter_positions()
