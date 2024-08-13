@@ -100,20 +100,20 @@ impl TryFrom<usize> for Space {
 type SudokuBoard = Board<Option<Space>>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct SudokuChoices([bool; 9]);
+struct SudokuChoices(u16);
 
 impl SudokuChoices {
     fn all() -> Self {
-        SudokuChoices([true; 9])
+        SudokuChoices(0b111111111)
     }
 
     fn none() -> Self {
-        SudokuChoices([false; 9])
+        SudokuChoices(0b000000000)
     }
 
     fn one(space: Space) -> Self {
-        let mut choices = Self::none();
-        choices[space] = true;
+        let mut choices = SudokuChoices::none();
+        choices.set(space, true);
         choices
     }
 
@@ -125,10 +125,17 @@ impl SudokuChoices {
     }
 
     fn iter(&self) -> impl Iterator<Item = Space> + '_ {
-        self.0
-            .iter()
-            .enumerate()
-            .filter_map(|(i, o)| o.then_some(Space::try_from(i + 1).unwrap()))
+        (0..9).filter_map(|i| {
+            ((1 << i) & self.0 != 0).then(|| Space::try_from(i + 1).unwrap())
+        })
+    }
+
+    fn set(&mut self, space: Space, value: bool) {
+        if value {
+            self.0 |= 1 << space.idx();
+        } else {
+            self.0 &= !(1 << space.idx());
+        }
     }
 }
 
@@ -136,13 +143,12 @@ impl Index<Space> for SudokuChoices {
     type Output = bool;
 
     fn index(&self, index: Space) -> &Self::Output {
-        &self.0[index.idx()]
-    }
-}
-
-impl IndexMut<Space> for SudokuChoices {
-    fn index_mut(&mut self, index: Space) -> &mut Self::Output {
-        &mut self.0[index.idx()]
+        // this is stupid, this shouldnt work :/
+        if self.0 & (1 << index.idx()) != 0 {
+            &true
+        } else {
+            &false
+        }
     }
 }
 
@@ -151,10 +157,8 @@ impl Display for SudokuChoices {
         write!(
             f,
             "[{}]",
-            self.0
-                .iter()
-                .enumerate()
-                .map(|(i, open)| if *open {
+            (0..9)
+                .map(|i| if self.0 & (1 << i) != 0 {
                     (i + 1).to_string()
                 } else {
                     " ".to_string()
@@ -261,14 +265,13 @@ impl SudokuBoard {
                 board[pos] = Some(space);
                 possibilities_board[pos] = SudokuChoices::one(space);
 
-                let (x, y) = pos;
                 for pos in empty()
                     .chain(SudokuRegion::row_of(pos))
                     .chain(SudokuRegion::column_of(pos))
                     .chain(SudokuRegion::square_of(pos))
-                    .filter(|&pos| pos != (x, y))
+                    .filter(|p| p != &pos)
                 {
-                    possibilities_board[pos][space] = false;
+                    possibilities_board[pos].set(space, false);
                     let remaining_possibilities =
                         possibilities_board[pos].iter().take(2).collect::<Vec<_>>();
                     is_invalid = match &remaining_possibilities[..] {
@@ -308,19 +311,17 @@ impl SudokuBoard {
                         SudokuRegion::row_of(pos),
                         SudokuRegion::column_of(pos),
                         SudokuRegion::square_of(pos),
-                    ]
-                    .map(|region| {
-                        region
-                            .into_iter()
-                            .filter(|&region_pos: &BoardPosition| pos != region_pos)
-                    }) {
+                    ] {
                         let mut solo_candidates = new_possibilities.clone();
-                        for pos in region {
+                        for pos in region
+                            .into_iter()
+                            .filter(|p| p != &pos) 
+                        {
                             if let Some(space) = self[pos] {
-                                new_possibilities[space] = false;
+                                new_possibilities.set(space, false);
                             }
                             for space in possibilities_board[pos].iter() {
-                                solo_candidates[space] = false;
+                                solo_candidates.set(space, false);
                             }
                         }
                         if let &[value] = &solo_candidates.iter().take(2).collect::<Vec<_>>()[..] {
@@ -366,7 +367,7 @@ impl SudokuBoard {
                 if choices[space] {
                     return Err(space);
                 }
-                choices[space] = true;
+                choices.set(space, true);
             }
             Ok(())
         }
