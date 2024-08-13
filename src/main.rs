@@ -3,7 +3,6 @@
 #![feature(array_chunks)]
 use std::{
     fmt::Display,
-    io::{stdout, Write},
     iter::empty,
     ops::{Index, IndexMut},
     str::FromStr,
@@ -104,14 +103,24 @@ type SudokuBoard = Board<Option<Space>>;
 struct SudokuChoices([bool; 9]);
 
 impl SudokuChoices {
+    fn all() -> Self {
+        SudokuChoices([true; 9])
+    }
+
+    fn none() -> Self {
+        SudokuChoices([false; 9])
+    }
+
+    fn one(space: Space) -> Self {
+        let mut choices = Self::none();
+        choices[space] = true;
+        choices
+    }
+
     fn new(initial_choice: Option<Space>) -> Self {
         match initial_choice {
-            Some(space) => {
-                let mut choices_array = [false; 9];
-                choices_array[space.idx()] = true;
-                SudokuChoices(choices_array)
-            }
-            None => SudokuChoices([true; 9]),
+            Some(space) => SudokuChoices::one(space),
+            None => SudokuChoices::all(),
         }
     }
 
@@ -250,7 +259,7 @@ impl SudokuBoard {
             let mut is_invalid = false;
             if board[pos].is_none() {
                 board[pos] = Some(space);
-                possibilities_board[pos] = SudokuChoices::new(Some(space));
+                possibilities_board[pos] = SudokuChoices::one(space);
 
                 let (x, y) = pos;
                 for pos in empty()
@@ -295,13 +304,16 @@ impl SudokuBoard {
                 let mut new_possibilities = possibilities_board[pos].clone();
 
                 if self[pos].is_none() {
-                    let not_self = |&region_pos: &BoardPosition| pos != region_pos;
-
                     for region in [
-                        SudokuRegion::row_of(pos).into_iter().filter(not_self),
-                        SudokuRegion::column_of(pos).into_iter().filter(not_self),
-                        SudokuRegion::square_of(pos).into_iter().filter(not_self),
-                    ] {
+                        SudokuRegion::row_of(pos),
+                        SudokuRegion::column_of(pos),
+                        SudokuRegion::square_of(pos),
+                    ]
+                    .map(|region| {
+                        region
+                            .into_iter()
+                            .filter(|&region_pos: &BoardPosition| pos != region_pos)
+                    }) {
                         let mut solo_candidates = new_possibilities.clone();
                         for pos in region {
                             if let Some(space) = self[pos] {
@@ -312,15 +324,13 @@ impl SudokuBoard {
                             }
                         }
                         if let &[value] = &solo_candidates.iter().take(2).collect::<Vec<_>>()[..] {
-                            new_possibilities = SudokuChoices::new(Some(value));
+                            new_possibilities = SudokuChoices::one(value);
                             break;
                         }
                     }
 
                     // update possibility space
-                    if new_possibilities != possibilities_board[pos] {
-                        adjusted = true;
-                    }
+                    adjusted |= new_possibilities != possibilities_board[pos];
                     possibilities_board[pos] = new_possibilities;
                 }
 
@@ -351,12 +361,12 @@ impl SudokuBoard {
     #[allow(unused)]
     fn validate(&self) -> Result<(), String> {
         fn verify_set(it: impl Iterator<Item = Space>) -> Result<(), Space> {
-            let mut choices = SudokuChoices::new(None);
+            let mut choices = SudokuChoices::none();
             for space in it {
-                if !choices[space] {
+                if choices[space] {
                     return Err(space);
                 }
-                choices[space] = false;
+                choices[space] = true;
             }
             Ok(())
         }
@@ -398,9 +408,7 @@ impl FromStr for SudokuBoard {
                             )
                             .expect("char will always be convertible to a digit"),
                         )),
-                        _ => Err(format!(
-                            "Character '{chr}' is not valid for a sudoku board"
-                        )),
+                        _ => Err(format!("Character '{chr}' is not valid for a sudoku board")),
                     })
                     .collect::<Result<Vec<_>, _>>()
             })
@@ -456,7 +464,6 @@ where
 
 impl Searchable for SudokuBoard {
     fn next_states(&self) -> impl Iterator<Item = Self> {
-
         let mut reduced_board = self.clone();
         let (possibilities_board, is_invalid) = reduced_board.reduce();
         if is_invalid {
