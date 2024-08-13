@@ -247,10 +247,6 @@ impl SudokuBoard {
             pos: BoardPosition,
             space: Space,
         ) -> bool {
-            // #[cfg(debug_assertions)]
-            // {
-            //     println!("Setting {pos:?} to {space:?}");
-            // }
             let mut is_invalid = false;
             if board[pos].is_none() {
                 board[pos] = Some(space);
@@ -263,10 +259,6 @@ impl SudokuBoard {
                     .chain(SudokuRegion::square_of(pos))
                     .filter(|&pos| pos != (x, y))
                 {
-                    // #[cfg(debug_assertions)]
-                    // {
-                    //     println!("updating {pos:?}");
-                    // }
                     possibilities_board[pos][space] = false;
                     let remaining_possibilities =
                         possibilities_board[pos].iter().take(2).collect::<Vec<_>>();
@@ -301,17 +293,6 @@ impl SudokuBoard {
 
             for pos in SudokuBoard::iter_positions() {
                 let mut new_possibilities = possibilities_board[pos].clone();
-
-                // #[cfg(debug_assertions)]
-                // {
-                //     println!();
-                //     println!("{:?}, {}", pos, new_possibilities);
-                //     println!("{}", self);
-                //     println!("{}", possibilities_board);
-                //     println!();
-
-                //     // std::io::Read::read(&mut std::io::stdin(), &mut [0]).unwrap();
-                // }
 
                 if self[pos].is_none() {
                     let not_self = |&region_pos: &BoardPosition| pos != region_pos;
@@ -418,16 +399,16 @@ impl FromStr for SudokuBoard {
                             .expect("char will always be convertible to a digit"),
                         )),
                         _ => Err(format!(
-                            "Character '{}' is not valid for a sudoku board",
-                            chr
+                            "Character '{chr}' is not valid for a sudoku board"
                         )),
                     })
                     .collect::<Result<Vec<_>, _>>()
             })
             .flatten()
             .collect::<Vec<_>>();
+        let space_count = collect.len();
         Ok(Board(collect.try_into().map_err(|_| {
-            String::from("Incorrect number of spaces on sudoku boad")
+            format!("Incorrect number of spaces on sudoku board: expected 81, found {space_count}")
         })?))
     }
 }
@@ -475,17 +456,8 @@ where
     }
 }
 
-static mut COUNTER: usize = 0;
-
 impl Searchable for SudokuBoard {
     fn next_states(&self) -> impl Iterator<Item = Self> {
-        unsafe {
-            COUNTER += 1;
-            if COUNTER % 10_000 == 0 {
-                print!("\r{}", COUNTER);
-                stdout().flush().unwrap();
-            }
-        }
 
         let mut reduced_board = self.clone();
         let (possibilities_board, is_invalid) = reduced_board.reduce();
