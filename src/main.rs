@@ -11,7 +11,7 @@ use std::{
 
 use space_search::{Scoreable, Searchable, SolutionIdentifiable};
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct Board<Cell>([Cell; 81]);
 
 impl<Cell> Board<Cell> {
@@ -247,10 +247,10 @@ impl SudokuBoard {
             pos: BoardPosition,
             space: Space,
         ) -> bool {
-            #[cfg(debug_assertions)]
-            {
-                println!("Setting {pos:?} to {space:?}");
-            }
+            // #[cfg(debug_assertions)]
+            // {
+            //     println!("Setting {pos:?} to {space:?}");
+            // }
             let mut is_invalid = false;
             if board[pos].is_none() {
                 board[pos] = Some(space);
@@ -263,10 +263,10 @@ impl SudokuBoard {
                     .chain(SudokuRegion::square_of(pos))
                     .filter(|&pos| pos != (x, y))
                 {
-                    #[cfg(debug_assertions)]
-                    {
-                        println!("updating {pos:?}");
-                    }
+                    // #[cfg(debug_assertions)]
+                    // {
+                    //     println!("updating {pos:?}");
+                    // }
                     possibilities_board[pos][space] = false;
                     let remaining_possibilities =
                         possibilities_board[pos].iter().take(2).collect::<Vec<_>>();
@@ -302,16 +302,16 @@ impl SudokuBoard {
             for pos in SudokuBoard::iter_positions() {
                 let mut new_possibilities = possibilities_board[pos].clone();
 
-                #[cfg(debug_assertions)]
-                {
-                    println!();
-                    println!("{:?}, {}", pos, new_possibilities);
-                    println!("{}", self);
-                    println!("{}", possibilities_board);
-                    println!();
+                // #[cfg(debug_assertions)]
+                // {
+                //     println!();
+                //     println!("{:?}, {}", pos, new_possibilities);
+                //     println!("{}", self);
+                //     println!("{}", possibilities_board);
+                //     println!();
 
-                    // std::io::Read::read(&mut std::io::stdin(), &mut [0]).unwrap();
-                }
+                //     // std::io::Read::read(&mut std::io::stdin(), &mut [0]).unwrap();
+                // }
 
                 if self[pos].is_none() {
                     let not_self = |&region_pos: &BoardPosition| pos != region_pos;
@@ -454,6 +454,27 @@ impl Display for SudokuBoard {
     }
 }
 
+enum NextBoardStates<I> {
+    Solution(Option<SudokuBoard>),
+    States(I),
+    None,
+}
+
+impl<I> Iterator for NextBoardStates<I>
+where
+    I: Iterator<Item = SudokuBoard>,
+{
+    type Item = SudokuBoard;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            NextBoardStates::None => None,
+            NextBoardStates::Solution(board) => board.take(),
+            NextBoardStates::States(iter) => iter.next(),
+        }
+    }
+}
+
 static mut COUNTER: usize = 0;
 
 impl Searchable for SudokuBoard {
@@ -468,28 +489,33 @@ impl Searchable for SudokuBoard {
 
         let mut reduced_board = self.clone();
         let (possibilities_board, is_invalid) = reduced_board.reduce();
-        SudokuBoard::iter_positions()
-            .take_while(move |_| !is_invalid)
-            .filter({
-                let reduced_board = reduced_board.clone();
-                move |&pos| reduced_board[pos].is_none()
-            })
-            .flat_map(
-                move |pos| {
-                    possibilities_board[pos]
-                        .clone()
-                        .iter()
-                        .map({
-                            let reduced_board = reduced_board.clone();
-                            move |space| {
-                                let mut new_board = reduced_board.clone();
-                                new_board[pos] = Some(space);
-                                new_board
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                }
+        if is_invalid {
+            NextBoardStates::None
+        } else if reduced_board.is_solution() {
+            NextBoardStates::Solution(Some(reduced_board))
+        } else {
+            NextBoardStates::States(
+                SudokuBoard::iter_positions()
+                    .filter({
+                        let reduced_board = reduced_board.clone();
+                        move |&pos| reduced_board[pos].is_none()
+                    })
+                    .flat_map(move |pos| {
+                        possibilities_board[pos]
+                            .clone()
+                            .iter()
+                            .map({
+                                let reduced_board = reduced_board.clone();
+                                move |space| {
+                                    let mut new_board = reduced_board.clone();
+                                    new_board[pos] = Some(space);
+                                    new_board
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }),
             )
+        }
     }
 }
 
@@ -649,6 +675,64 @@ fn test_solo_candidate_deduction() {
     assert_eq!(board[(0, 0)], Some(Space::Four));
 }
 
+#[test]
+fn test_reduction_2() {
+    let mut board: SudokuBoard = "2  5974 6
+6 4231   
+   8  23 
+    2    
+86231    
+ 45    2 
+4 918276 
+786953142
+ 21  6  8"
+        .parse()
+        .unwrap();
+    board.reduce();
+    let solution_board: SudokuBoard = "238597416
+694231857
+517864239
+173429685
+862315974
+945678321
+459182763
+786953142
+321746598"
+        .parse()
+        .unwrap();
+    assert_eq!(board, solution_board);
+}
+
+#[test]
+fn test_manual_solve() {
+    #[rustfmt::skip]
+    let board_str = 
+"2  5 74 6
+    31   
+      23 
+    2    
+86 31    
+ 45      
+  9   7  
+  695   2
+  1  6  8";
+    let mut board: SudokuBoard = board_str.parse().unwrap();
+    println!("\n{board}");
+    board.reduce();
+    println!("\n{board}");
+    println!("next moves: {}", board.next_states().count());
+    let before_adjustment = board.clone();
+    board[(3, 2)] = Some(Space::Eight);
+    println!("\n{board}");
+    assert!(before_adjustment
+        .next_states()
+        .find(|b| b == &board)
+        .is_some());
+    board.reduce();
+    println!("\n{board}");
+    assert_eq!(board.validate(), Ok(()));
+    assert!(board.is_solution());
+}
 fn main() {
     use space_search::{search::*, *};
     #[rustfmt::skip]
@@ -662,14 +746,13 @@ fn main() {
   9   7  
   695   2
   1  6  8";
-    let mut board: SudokuBoard = board_str.parse().unwrap();
-
+    let board: SudokuBoard = board_str.parse().unwrap();
     println!("initial board:");
     println!("{}", board);
-
-    let (possibilities, _) = board.reduce();
-
-    println!("after reduction:");
-    println!("{}", board);
-    println!("{}", possibilities);
+    let mut searcher: Searcher<guided::route::hashable::Manager<_>, _> = Searcher::new(board);
+    let solution = searcher.next().expect("Sudoku board has a solution");
+    println!("solution:");
+    for board in solution {
+        println!("---------\n{}", board);
+    }
 }
